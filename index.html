@@ -1191,10 +1191,20 @@
                     const leftStereoData = applyHaditStereoWithDepth(fullLeftCanvas, depthResult.depthBuffer, currentConfig, false);
                     const rightStereoData = applyHaditStereoWithDepth(fullLeftCanvas, depthResult.depthBuffer, currentConfig, true);
                     
-                    fullLeftCtx.putImageData(leftStereoData, 0, 0);
+                    // Check viewing mode
+                    const viewingMode = document.querySelector('input[name="viewingMode"]:checked').value;
                     
-                    const fullRightCtx = fullRightCanvas.getContext('2d');
-                    fullRightCtx.putImageData(rightStereoData, 0, 0);
+                    if (viewingMode === 'crossview') {
+                        // For crossview: swap the data
+                        fullLeftCtx.putImageData(rightStereoData, 0, 0);
+                        const fullRightCtx = fullRightCanvas.getContext('2d');
+                        fullRightCtx.putImageData(leftStereoData, 0, 0);
+                    } else {
+                        // For parallel view: normal order
+                        fullLeftCtx.putImageData(leftStereoData, 0, 0);
+                        const fullRightCtx = fullRightCanvas.getContext('2d');
+                        fullRightCtx.putImageData(rightStereoData, 0, 0);
+                    }
                     
                     // Scale down to display size
                     const leftCtx = leftCanvas.getContext('2d');
@@ -1226,50 +1236,24 @@
         // ==================== VIEWING MODE FUNCTIONS ====================
         
         function updateViewingMode(mode) {
-            const leftCanvas = document.getElementById('leftCanvas');
-            const rightCanvas = document.getElementById('rightCanvas');
-            const leftFrame = leftCanvas.parentElement;
-            const rightFrame = rightCanvas.parentElement;
+            const leftFrame = document.querySelector('.stereo-frame:first-child');
+            const rightFrame = document.querySelector('.stereo-frame:last-child');
+            const leftTitle = leftFrame.querySelector('h3');
+            const rightTitle = rightFrame.querySelector('h3');
             
             if (mode === 'crossview') {
-                // For crossview: swap the frames so right eye is on left, left eye is on right
-                const leftTitle = leftFrame.querySelector('h3');
-                const rightTitle = rightFrame.querySelector('h3');
-                
-                // Swap the titles
-                const leftTitleText = leftTitle.textContent;
-                leftTitle.textContent = rightTitle.textContent;
-                rightTitle.textContent = leftTitleText;
-                
-                // Swap the canvases
-                const leftCanvasClone = leftCanvas.cloneNode(true);
-                const rightCanvasClone = rightCanvas.cloneNode(true);
-                
-                leftFrame.replaceChild(rightCanvasClone, leftCanvas);
-                rightFrame.replaceChild(leftCanvasClone, rightCanvas);
-                
-                // Update references
-                window.leftCanvas = rightCanvasClone;
-                window.rightCanvas = leftCanvasClone;
-                
+                // For crossview: swap the titles to indicate swapped viewing
+                leftTitle.textContent = '👁️ Right Eye (Cross)';
+                rightTitle.textContent = '👁️ Left Eye (Cross)';
             } else {
-                // For parallel view: ensure correct order (left on left, right on right)
-                const leftTitle = leftFrame.querySelector('h3');
-                const rightTitle = rightFrame.querySelector('h3');
-                
+                // For parallel view: normal order
                 leftTitle.textContent = '👁️ Left Eye';
                 rightTitle.textContent = '👁️ Right Eye';
-                
-                // Ensure canvases are in correct positions
-                const leftCanvasClone = leftCanvas.cloneNode(true);
-                const rightCanvasClone = rightCanvas.cloneNode(true);
-                
-                leftFrame.replaceChild(leftCanvasClone, leftCanvas);
-                rightFrame.replaceChild(rightCanvasClone, rightCanvas);
-                
-                // Update references
-                window.leftCanvas = leftCanvasClone;
-                window.rightCanvas = rightCanvasClone;
+            }
+            
+            // Re-render the image with the new viewing mode
+            if (currentImage) {
+                processImage();
             }
         }
 
