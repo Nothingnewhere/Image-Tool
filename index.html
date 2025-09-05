@@ -438,8 +438,18 @@
                 </div>
 
                 <div class="control-group">
-                    <label>🎨 Depth Contrast: <span id="depthContrastValue">0.2x</span></label>
-                    <input type="range" id="depthContrast" min="0.1" max="3.0" value="0.2" step="0.1">
+                    <label>🎨 Depth Contrast: <span id="depthContrastValue">3.0x</span></label>
+                    <input type="range" id="depthContrast" min="0.1" max="3.0" value="3.0" step="0.1">
+                </div>
+
+                <div class="control-group">
+                    <label>🌊 Depth Smoothing: <span id="depthSmoothingValue">0.0</span></label>
+                    <input type="range" id="depthSmoothing" min="0" max="5.0" value="0.0" step="0.1">
+                    <div class="range-labels">
+                        <span>None</span>
+                        <span>2.5</span>
+                        <span>Heavy</span>
+                    </div>
                 </div>
 
                 <div class="control-group">
@@ -521,6 +531,8 @@
                 <button class="preset-btn" id="setLowContrast">🔅 Low Contrast</button>
                 <button class="preset-btn" id="setExtremeDepth">💥 Extreme Depth</button>
                 <button class="preset-btn" id="setSubtleDepth">🌫️ Subtle Depth</button>
+                <button class="preset-btn" id="setSmoothDepth">🌊 Smooth Depth</button>
+                <button class="preset-btn" id="setSharpDepth">⚡ Sharp Depth</button>
                 <button class="preset-btn" id="processImage">🔄 Process Image</button>
             </div>
 
@@ -731,6 +743,90 @@
 
         // ==================== DEPTH GENERATION ====================
         
+        function applyGaussianBlur(depthBuffer, width, height, radius) {
+            if (radius <= 0) return depthBuffer;
+            
+            const smoothedBuffer = new Array(width * height);
+            const sigma = radius / 3.0; // Standard deviation
+            const kernelSize = Math.ceil(radius * 2) + 1;
+            const kernel = [];
+            
+            // Generate Gaussian kernel
+            let kernelSum = 0;
+            for (let i = 0; i < kernelSize; i++) {
+                const x = i - Math.floor(kernelSize / 2);
+                const gaussian = Math.exp(-(x * x) / (2 * sigma * sigma));
+                kernel[i] = gaussian;
+                kernelSum += gaussian;
+            }
+            
+            // Normalize kernel
+            for (let i = 0; i < kernelSize; i++) {
+                kernel[i] /= kernelSum;
+            }
+            
+            // Apply horizontal blur
+            const tempBuffer = new Array(width * height);
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    let sum = 0;
+                    let weightSum = 0;
+                    
+                    for (let kx = 0; kx < kernelSize; kx++) {
+                        const sampleX = x + kx - Math.floor(kernelSize / 2);
+                        if (sampleX >= 0 && sampleX < width) {
+                            const idx = y * width + sampleX;
+                            if (depthBuffer[idx]) {
+                                sum += depthBuffer[idx].depth * kernel[kx];
+                                weightSum += kernel[kx];
+                            }
+                        }
+                    }
+                    
+                    const idx = y * width + x;
+                    if (depthBuffer[idx]) {
+                        tempBuffer[idx] = {
+                            ...depthBuffer[idx],
+                            depth: weightSum > 0 ? sum / weightSum : depthBuffer[idx].depth
+                        };
+                    } else {
+                        tempBuffer[idx] = depthBuffer[idx];
+                    }
+                }
+            }
+            
+            // Apply vertical blur
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    let sum = 0;
+                    let weightSum = 0;
+                    
+                    for (let ky = 0; ky < kernelSize; ky++) {
+                        const sampleY = y + ky - Math.floor(kernelSize / 2);
+                        if (sampleY >= 0 && sampleY < height) {
+                            const idx = sampleY * width + x;
+                            if (tempBuffer[idx]) {
+                                sum += tempBuffer[idx].depth * kernel[ky];
+                                weightSum += kernel[ky];
+                            }
+                        }
+                    }
+                    
+                    const idx = y * width + x;
+                    if (tempBuffer[idx]) {
+                        smoothedBuffer[idx] = {
+                            ...tempBuffer[idx],
+                            depth: weightSum > 0 ? sum / weightSum : tempBuffer[idx].depth
+                        };
+                    } else {
+                        smoothedBuffer[idx] = tempBuffer[idx];
+                    }
+                }
+            }
+            
+            return smoothedBuffer;
+        }
+        
         function applyDepthContrast(depth, contrast, bandCenteredness = 1.0) {
             const centerAdjusted = 0.5;
             let contrastAdjustedDepth = centerAdjusted + (depth - centerAdjusted) * contrast;
@@ -810,6 +906,12 @@
                         coverage: true
                     };
                 }
+            }
+            
+            // Apply smoothing if enabled
+            if (config.depthSmoothing > 0) {
+                const smoothedBuffer = applyGaussianBlur(depthBuffer, width, height, config.depthSmoothing);
+                return { depthBuffer: smoothedBuffer };
             }
             
             return { depthBuffer };
@@ -1020,7 +1122,8 @@
             haditInfluence: 1.0,
             separation: 8,
             depthIntensity: 2.0,
-            depthContrast: 0.2,
+            depthContrast: 3.0,
+            depthSmoothing: 0.0,
             sBounds: 20.0,
             bandDetectionMode: 'auto_detect',
             luminosityWeight: 0.0,
@@ -1361,6 +1464,12 @@
                 if (currentImage) processImage();
             });
 
+            document.getElementById('depthSmoothing').addEventListener('input', (e) => {
+                currentConfig.depthSmoothing = parseFloat(e.target.value);
+                document.getElementById('depthSmoothingValue').textContent = parseFloat(e.target.value).toFixed(1);
+                if (currentImage) processImage();
+            });
+
             document.getElementById('luminosityWeight').addEventListener('input', (e) => {
                 currentConfig.luminosityWeight = parseFloat(e.target.value);
                 document.getElementById('luminosityWeightValue').textContent = parseFloat(e.target.value).toFixed(2);
@@ -1444,6 +1553,20 @@
                 currentConfig.depthIntensity = 0.5;
                 document.getElementById('depthIntensity').value = 0.5;
                 document.getElementById('depthIntensityValue').textContent = '0.5x';
+                if (currentImage) processImage();
+            });
+
+            document.getElementById('setSmoothDepth').addEventListener('click', () => {
+                currentConfig.depthSmoothing = 3.0;
+                document.getElementById('depthSmoothing').value = 3.0;
+                document.getElementById('depthSmoothingValue').textContent = '3.0';
+                if (currentImage) processImage();
+            });
+
+            document.getElementById('setSharpDepth').addEventListener('click', () => {
+                currentConfig.depthSmoothing = 0.0;
+                document.getElementById('depthSmoothing').value = 0.0;
+                document.getElementById('depthSmoothingValue').textContent = '0.0';
                 if (currentImage) processImage();
             });
 
